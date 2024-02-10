@@ -21,9 +21,11 @@ evaluation budgets, not estimated provider charges. An assertion's expected
 literal is required except for `manual`, which is explicitly undetermined.
 
 The harness sorts IDs by UTF-16 code unit, then uses a documented seeded
-32-bit shuffle to choose execution order. The final response is the last
-successful attempt; previous failures/retries and all declared costs remain
-visible. Deterministic exact/contains/excludes assertions grade that response.
+32-bit shuffle to choose execution order. The terminal attempt is
+authoritative: deterministic exact/contains/excludes assertions grade its
+valid response; a terminal error or missing response makes the case incomplete
+even when an earlier attempt succeeded. Previous attempts/retries and all
+declared costs remain visible.
 A known failed assertion or exceeded known budget fails the run. Missing
 response, malformed adapter result, manual grade, or missing cost needed for
 the budget makes it incomplete (exit 2), never a pass. The report contains
