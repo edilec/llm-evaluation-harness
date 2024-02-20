@@ -1,0 +1,6 @@
+{
+  "schemaVersion": "1",
+  "responses": {
+    "sample-pass": { "attempts": [{ "response": "green", "costMicros": 3 }] }
+  }
+}

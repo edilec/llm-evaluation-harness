@@ -85,6 +85,14 @@ test('unusable dataset IDs and empty case lists are incomplete, not clean', () =
   assert.equal(evaluateDataset(empty, { now: () => 0 }).status, 'incomplete')
 })
 
+test('an attempt cannot claim both a response and an error', () => {
+  const input = clone()
+  input.cases[0].mock.attempts[0].error = 'failed'
+  const report = evaluateDataset(input, { now: () => 0 })
+  assert.equal(report.status, 'incomplete')
+  assert.deepEqual(ruleIds(report), ['input-invalid'])
+})
+
 test('unknown library limit is invalid configuration, not an ignored green run', () => {
   assert.throws(() => evaluateDataset(clone(), { limits: { maxCase: 1 } }), /Unknown limit/)
 })

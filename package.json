@@ -1,13 +1,21 @@
 {
   "name": "llm-evaluation-harness",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "description": "Evaluate language model behavior with representative tasks and explicit pass rules.",
   "type": "module",
+  "bin": {
+    "llm-evaluation-harness": "./bin/llm-evaluation-harness.mjs"
+  },
   "engines": {
     "node": ">=22"
   },
   "scripts": {
-    "test": "node --test"
+    "lint": "for f in src/*.mjs bin/*.mjs test/*.mjs; do node --check \"$f\" || exit 1; done",
+    "test": "node --test",
+    "examples": "npm run example && npm run example:failing",
+    "example": "node bin/llm-evaluation-harness.mjs --dataset examples/passing.json --json > /dev/null",
+    "example:failing": "node bin/llm-evaluation-harness.mjs --dataset examples/failing.json --json > /dev/null; test $? -eq 1",
+    "check": "npm run lint && npm test && npm run examples && npm pack --dry-run"
   },
   "license": "MIT",
   "repository": {

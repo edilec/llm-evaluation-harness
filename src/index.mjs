@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto'
+import { constants } from 'node:fs'
 import { open } from 'node:fs/promises'
 
 export const TOOL_ID = 'llm-evaluation-harness'
@@ -78,19 +79,31 @@ function incomplete(ruleId, pointer, message) {
   }
 }
 
-function inspectDataset(dataset, limits, checkDeadline) {
-  if (dataset === null || typeof dataset !== 'object' || Array.isArray(dataset)) return ['input-invalid', '', 'Dataset must be an object.']
-  const pending = [{ value: dataset, depth: 1 }]
+function depthProblem(value, limits, checkDeadline) {
+  const pending = [{ value, depth: 1 }]
   const seen = new WeakSet()
   while (pending.length > 0) {
     checkDeadline()
     const { value, depth } = pending.pop()
     if (depth > limits.maxDepth) return ['depth-limit-exceeded', '', `JSON nesting exceeds ${limits.maxDepth}.`]
     if (value === null || typeof value !== 'object') continue
-    if (seen.has(value)) return ['input-invalid', '', 'Dataset has a cycle or repeated object.']
+    if (seen.has(value)) return ['input-invalid', '', 'Input has a cycle or repeated object.']
     seen.add(value)
     for (const child of Object.values(value)) if (child !== null && typeof child === 'object') pending.push({ value: child, depth: depth + 1 })
   }
+  return null
+}
+
+function validAttempt(attempt) {
+  return attempt !== null && typeof attempt === 'object' && !Array.isArray(attempt)
+    && (typeof attempt.response === 'string') !== (typeof attempt.error === 'string')
+    && (attempt.costMicros === undefined || (Number.isSafeInteger(attempt.costMicros) && attempt.costMicros >= 0))
+}
+
+function inspectDataset(dataset, limits, checkDeadline) {
+  if (dataset === null || typeof dataset !== 'object' || Array.isArray(dataset)) return ['input-invalid', '', 'Dataset must be an object.']
+  const nesting = depthProblem(dataset, limits, checkDeadline)
+  if (nesting !== null) return nesting
   if (dataset.schemaVersion !== SCHEMA_VERSION || !Number.isInteger(dataset.seed) || dataset.seed < 0 || dataset.seed > 0xffffffff
     || !Array.isArray(dataset.cases) || dataset.policy === null || typeof dataset.policy !== 'object'
     || !Number.isSafeInteger(dataset.policy.maxCostMicros) || dataset.policy.maxCostMicros < 0
@@ -131,9 +144,7 @@ function inspectDataset(dataset, limits, checkDeadline) {
     }
     for (const [attemptIndex, attempt] of item.mock.attempts.entries()) {
       checkDeadline()
-      if (attempt === null || typeof attempt !== 'object' || Array.isArray(attempt)
-        || (typeof attempt.response !== 'string' && typeof attempt.error !== 'string')
-        || (attempt.costMicros !== undefined && (!Number.isSafeInteger(attempt.costMicros) || attempt.costMicros < 0))) {
+      if (!validAttempt(attempt)) {
         return ['input-invalid', `/cases/${index}/mock/attempts/${attemptIndex}`, 'A mock attempt is invalid.']
       }
       if ((typeof attempt.response === 'string' && attempt.response.length > limits.maxTextChars)
@@ -203,7 +214,9 @@ function evaluateCore(dataset, { adapter, limits, checkDeadline }) {
     } catch {
       supplied = null
     }
-    if (supplied === null || typeof supplied !== 'object' || typeof supplied.then === 'function'
+    if (supplied === undefined && adapter !== undefined) {
+      add('response-missing', '/mock/attempts', 'The local response fixture has no response for this case.')
+    } else if (supplied === null || typeof supplied !== 'object' || typeof supplied.then === 'function'
       || !Array.isArray(supplied.attempts) || supplied.attempts.length === 0) {
       add('adapter-invalid', '', 'The local adapter did not supply a synchronous attempt sequence.')
     }
@@ -211,6 +224,10 @@ function evaluateCore(dataset, { adapter, limits, checkDeadline }) {
     adapterAttempts += attempts.length
     if (adapterAttempts > limits.maxAttempts) {
       add('attempt-limit-exceeded', '/mock/attempts', `Attempt count exceeds ${limits.maxAttempts}.`)
+      return { id, status: 'incomplete', attempts: attempts.length, retries: null, costMicros: null, checks: [] }
+    }
+    if (attempts.some((attempt) => !validAttempt(attempt))) {
+      add('adapter-invalid', '/mock/attempts', 'The local adapter supplied an invalid attempt.')
       return { id, status: 'incomplete', attempts: attempts.length, retries: null, costMicros: null, checks: [] }
     }
     const terminal = attempts.at(-1)
@@ -233,7 +250,7 @@ function evaluateCore(dataset, { adapter, limits, checkDeadline }) {
     }
     const checks = []
     if (typeof terminal?.response !== 'string') {
-      if (!caseFindings.some((value) => value.ruleId === 'adapter-invalid')) {
+      if (!caseFindings.some((value) => value.ruleId === 'adapter-invalid' || value.ruleId === 'response-missing')) {
         add('response-missing', '/mock/attempts', 'The terminal attempt has no usable response; earlier attempts cannot stand in for it.')
       }
     } else {
@@ -263,8 +280,12 @@ function evaluateCore(dataset, { adapter, limits, checkDeadline }) {
   })
   checkDeadline()
   const retries = results.reduce((sum, item) => sum + item.retries, 0)
-  const costMicros = results.some((item) => item.costMicros === null)
-    ? null : results.reduce((sum, item) => sum + item.costMicros, 0)
+  const missingCaseCost = results.some((item) => item.costMicros === null)
+  let costMicros = missingCaseCost ? null : results.reduce((sum, item) => sum + item.costMicros, 0)
+  if (costMicros !== null && !Number.isSafeInteger(costMicros)) {
+    costMicros = null
+    findings.push(finding('cost-unknown', '/policy/maxCostMicros', 'Aggregate declared cost exceeds safe integer precision, so the budget cannot be evaluated.'))
+  }
   if (retries > dataset.policy.maxRetries) {
     findings.push(finding('retry-budget-exceeded', '/policy/maxRetries', `Observed ${retries} retries, above the declared budget of ${dataset.policy.maxRetries}.`))
   }
@@ -303,15 +324,12 @@ function evaluateWithDeadline(dataset, options) {
   }
 }
 
-export async function readDataset(path, { adapter, limits: overrides, now = Date.now } = {}) {
-  if (typeof path !== 'string' || path.length === 0) throw new ConfigError('dataset path is required')
-  const limits = validateLimits(overrides)
-  if (adapter !== undefined && typeof adapter !== 'function') throw new ConfigError('adapter must be a synchronous function')
-  const checkDeadline = deadline(now, limits.timeoutMs)
+async function readJson(path, limits, checkDeadline) {
   let handle
   try {
-    handle = await open(path, 'r')
+    handle = await open(path, constants.O_RDONLY | constants.O_NONBLOCK)
     checkDeadline()
+    if (!(await handle.stat()).isFile()) return { problem: ['input-unreadable', '', 'The named input is not a regular file.'] }
     const buffer = Buffer.alloc(limits.maxBytes + 1)
     let used = 0
     while (used < buffer.length) {
@@ -320,21 +338,78 @@ export async function readDataset(path, { adapter, limits: overrides, now = Date
       if (bytesRead === 0) break
       used += bytesRead
     }
-    if (used > limits.maxBytes) return incomplete('byte-limit-exceeded', '', `Dataset exceeds ${limits.maxBytes} bytes.`)
-    let dataset
+    if (used > limits.maxBytes) return { problem: ['byte-limit-exceeded', '', `Input exceeds ${limits.maxBytes} bytes.`] }
     try {
-      dataset = JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(buffer.subarray(0, used)))
-    } catch {
-      return incomplete('input-invalid', '', 'Dataset is not valid UTF-8 JSON.')
+      const data = JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(buffer.subarray(0, used)))
+      checkDeadline()
+      return { data }
+    } catch (error) {
+      if (error instanceof DeadlineExceeded) throw error
+      return { problem: ['input-invalid', '', 'Input is not valid UTF-8 JSON.'] }
     }
+  } catch (error) {
+    if (error instanceof DeadlineExceeded || error instanceof ConfigError) throw error
+    return { problem: ['input-unreadable', '', 'The named input could not be read.'] }
+  } finally {
+    await handle?.close()
+  }
+}
+
+function inspectFixture(fixture, dataset, limits, checkDeadline) {
+  if (fixture === null || typeof fixture !== 'object' || Array.isArray(fixture)
+    || fixture.schemaVersion !== SCHEMA_VERSION || fixture.responses === null
+    || typeof fixture.responses !== 'object' || Array.isArray(fixture.responses)) {
+    return ['input-invalid', '', 'Response fixture version or response map is invalid.']
+  }
+  const nesting = depthProblem(fixture, limits, checkDeadline)
+  if (nesting !== null) return nesting
+  const known = new Set(dataset.cases.map((item) => item.id))
+  let count = 0
+  for (const [id, response] of Object.entries(fixture.responses)) {
     checkDeadline()
+    if (!known.has(id) || response === null || typeof response !== 'object' || !Array.isArray(response.attempts)
+      || response.attempts.length === 0) return ['input-invalid', '/responses', 'Response fixture has an unknown case ID or invalid attempt sequence.']
+    count += response.attempts.length
+    if (count > limits.maxAttempts) return ['attempt-limit-exceeded', '/responses', `Attempt count exceeds ${limits.maxAttempts}.`]
+    for (const attempt of response.attempts) {
+      checkDeadline()
+      if (!validAttempt(attempt)) {
+        return ['input-invalid', '/responses', 'Response fixture has an invalid attempt.']
+      }
+      if ((typeof attempt.response === 'string' && attempt.response.length > limits.maxTextChars)
+        || (typeof attempt.error === 'string' && attempt.error.length > limits.maxTextChars)) {
+        return ['text-limit-exceeded', '/responses', `Text exceeds ${limits.maxTextChars} characters.`]
+      }
+    }
+  }
+  return null
+}
+
+export async function readDataset(path, { adapter, responsesPath, limits: overrides, now = Date.now } = {}) {
+  if (typeof path !== 'string' || path.length === 0) throw new ConfigError('dataset path is required')
+  if (responsesPath !== undefined && (typeof responsesPath !== 'string' || responsesPath.length === 0)) throw new ConfigError('responses path must be non-empty')
+  if (responsesPath !== undefined && adapter !== undefined) throw new ConfigError('choose a local fixture or function adapter, not both')
+  const limits = validateLimits(overrides)
+  if (adapter !== undefined && typeof adapter !== 'function') throw new ConfigError('adapter must be a synchronous function')
+  const checkDeadline = deadline(now, limits.timeoutMs)
+  try {
+    const input = await readJson(path, limits, checkDeadline)
+    if (input.problem) return incomplete(...input.problem)
+    const dataset = input.data
+    const problem = inspectDataset(dataset, limits, checkDeadline)
+    if (problem !== null) return incomplete(...problem)
+    if (responsesPath !== undefined) {
+      const responseInput = await readJson(responsesPath, limits, checkDeadline)
+      if (responseInput.problem) return incomplete(...responseInput.problem)
+      const fixtureProblem = inspectFixture(responseInput.data, dataset, limits, checkDeadline)
+      if (fixtureProblem !== null) return incomplete(...fixtureProblem)
+      adapter = ({ id }) => responseInput.data.responses[id]
+    }
     return evaluateWithDeadline(dataset, { adapter, limits, checkDeadline })
   } catch (error) {
     if (error instanceof DeadlineExceeded) return incomplete('analysis-timeout', '', `Evaluation exceeded the ${limits.timeoutMs} ms time budget; no partial grade is published.`)
     if (error instanceof ConfigError) throw error
     return incomplete('input-unreadable', '', 'The named dataset could not be read.')
-  } finally {
-    await handle?.close()
   }
 }
 

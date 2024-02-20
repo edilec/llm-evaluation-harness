@@ -61,6 +61,17 @@ test('a declared cost sum outside safe integer precision is unknown, not a green
   assert.equal(report.summary.costMicros, null)
 })
 
+test('aggregate cost overflow across otherwise valid cases is incomplete', () => {
+  const input = oneCase()
+  input.policy.maxCostMicros = Number.MAX_SAFE_INTEGER
+  input.cases[0].mock.attempts[0].costMicros = Number.MAX_SAFE_INTEGER
+  input.cases.push({ ...structuredClone(input.cases[0]), id: 'B' })
+  const report = evaluateDataset(input, { now: () => 0 })
+  assert.equal(report.status, 'incomplete')
+  assert.deepEqual(ids(report), ['cost-unknown'])
+  assert.equal(report.summary.costMicros, null)
+})
+
 test('manual grading is explicitly undetermined and never a pass', () => {
   const input = oneCase()
   input.cases[0].assertions = [{ kind: 'manual' }]
@@ -129,6 +140,15 @@ test('a synchronous local adapter supplies attempts, but a promise is not silent
   assert.deepEqual(ids(promised), ['adapter-invalid'])
 })
 
+test('a local callback attempt claiming success and error simultaneously is invalid evidence', () => {
+  const report = evaluateDataset(oneCase(), {
+    now: () => 0,
+    adapter: () => ({ attempts: [{ response: 'ok', error: 'failed', costMicros: 1 }] }),
+  })
+  assert.equal(report.status, 'incomplete')
+  assert.deepEqual(ids(report), ['adapter-invalid'])
+})
+
 test('contains and excludes are literal deterministic checks, not regexes', () => {
   const input = oneCase()
   input.cases[0].assertions = [{ kind: 'contains', expected: '[ok]' }, { kind: 'excludes', expected: 'wrong' }]
@@ -152,4 +172,7 @@ test('seed changes local execution order reproducibly after code-unit ID orderin
   assert.deepEqual(zero.executionOrder, ['A', 'Z'])
   assert.deepEqual(one.executionOrder, ['Z', 'A'])
   assert.equal(renderReport(zero), renderReport(again))
+  input.seed = 0
+  input.cases[1].id = 'a'
+  assert.deepEqual(evaluateDataset(input, { now: () => 0 }).executionOrder, ['Z', 'a'])
 })
