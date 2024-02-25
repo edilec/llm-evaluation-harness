@@ -81,14 +81,16 @@ function incomplete(ruleId, pointer, message) {
 
 function depthProblem(value, limits, checkDeadline) {
   const pending = [{ value, depth: 1 }]
-  const seen = new WeakSet()
+  const active = new WeakSet()
   while (pending.length > 0) {
     checkDeadline()
-    const { value, depth } = pending.pop()
+    const { value, depth, leaving } = pending.pop()
+    if (leaving) { active.delete(value); continue }
     if (depth > limits.maxDepth) return ['depth-limit-exceeded', '', `JSON nesting exceeds ${limits.maxDepth}.`]
     if (value === null || typeof value !== 'object') continue
-    if (seen.has(value)) return ['input-invalid', '', 'Input has a cycle or repeated object.']
-    seen.add(value)
+    if (active.has(value)) return ['input-invalid', '', 'Input has a cycle.']
+    active.add(value)
+    pending.push({ value, leaving: true })
     for (const child of Object.values(value)) if (child !== null && typeof child === 'object') pending.push({ value: child, depth: depth + 1 })
   }
   return null

@@ -29,6 +29,22 @@ test('correct local mock answer passes with one graded case and no findings', ()
   assert.equal(renderReport(report).endsWith('\n'), true)
 })
 
+test('shared in-memory assertion arrays are valid but a genuine dataset cycle is incomplete', () => {
+  const input = structuredClone(dataset)
+  const second = { ...structuredClone(input.cases[0]), id: 'case-2', assertions: input.cases[0].assertions }
+  input.cases.push(second)
+  const shared = evaluateDataset(input, { now: () => 0 })
+  assert.equal(shared.status, 'pass')
+  assert.equal(shared.summary.checked, 2)
+  assert.deepEqual(shared.findings, [])
+  assert.deepEqual(shared, evaluateDataset(JSON.parse(JSON.stringify(input)), { now: () => 0 }))
+
+  input.extra = input
+  const cyclic = evaluateDataset(input, { now: () => 0 })
+  assert.equal(cyclic.status, 'incomplete')
+  assert.deepEqual(ruleIds(cyclic), ['input-invalid'])
+})
+
 const clone = () => structuredClone(dataset)
 const ruleIds = (report) => report.findings.map((finding) => finding.ruleId)
 
