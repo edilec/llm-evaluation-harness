@@ -101,6 +101,26 @@ test('unusable dataset IDs and empty case lists are incomplete, not clean', () =
   assert.equal(evaluateDataset(empty, { now: () => 0 }).status, 'incomplete')
 })
 
+test('visually empty prompts and assertion operands are unknown, not passing comparisons', () => {
+  const valid = clone()
+  assert.equal(evaluateDataset(valid, { now: () => 0 }).status, 'pass')
+
+  const hiddenPrompt = clone()
+  hiddenPrompt.cases[0].prompt = '\u200b'
+  const promptReport = evaluateDataset(hiddenPrompt, { now: () => 0 })
+  assert.equal(promptReport.status, 'incomplete')
+  assert.deepEqual(ruleIds(promptReport), ['input-invalid'])
+  assert.equal(promptReport.summary.checked, 0)
+
+  const hiddenExpected = clone()
+  hiddenExpected.cases[0].assertions = [{ kind: 'exact', expected: '\u200b' }]
+  hiddenExpected.cases[0].mock.attempts[0].response = '\u200b'
+  const assertionReport = evaluateDataset(hiddenExpected, { now: () => 0 })
+  assert.equal(assertionReport.status, 'incomplete')
+  assert.deepEqual(ruleIds(assertionReport), ['input-invalid'])
+  assert.equal(assertionReport.summary.checked, 0)
+})
+
 test('an attempt cannot claim both a response and an error', () => {
   const input = clone()
   input.cases[0].mock.attempts[0].error = 'failed'

@@ -102,6 +102,11 @@ function validAttempt(attempt) {
     && (attempt.costMicros === undefined || (Number.isSafeInteger(attempt.costMicros) && attempt.costMicros >= 0))
 }
 
+function hasVisibleText(value) {
+  return typeof value === 'string'
+    && value.replace(/[\p{Cc}\p{Cf}\p{Zl}\p{Zp}\p{Default_Ignorable_Code_Point}]/gu, '').trim().length > 0
+}
+
 function inspectDataset(dataset, limits, checkDeadline) {
   if (dataset === null || typeof dataset !== 'object' || Array.isArray(dataset)) return ['input-invalid', '', 'Dataset must be an object.']
   const nesting = depthProblem(dataset, limits, checkDeadline)
@@ -121,7 +126,7 @@ function inspectDataset(dataset, limits, checkDeadline) {
     checkDeadline()
     if (item === null || typeof item !== 'object' || Array.isArray(item) || typeof item.id !== 'string'
       || !/^[A-Za-z][A-Za-z0-9_-]{0,63}$/.test(item.id) || ids.has(item.id)
-      || typeof item.prompt !== 'string' || item.prompt.trim().length === 0
+      || !hasVisibleText(item.prompt)
       || !Array.isArray(item.assertions) || item.assertions.length === 0
       || item.mock === null || typeof item.mock !== 'object' || !Array.isArray(item.mock.attempts)
       || item.mock.attempts.length === 0) {
@@ -137,7 +142,7 @@ function inspectDataset(dataset, limits, checkDeadline) {
       checkDeadline()
       if (assertion === null || typeof assertion !== 'object' || Array.isArray(assertion)
         || !['exact', 'contains', 'excludes', 'manual'].includes(assertion.kind)
-        || (assertion.kind !== 'manual' && (typeof assertion.expected !== 'string' || assertion.expected.length === 0))) {
+        || (assertion.kind !== 'manual' && !hasVisibleText(assertion.expected))) {
         return ['input-invalid', `/cases/${index}/assertions/${assertionIndex}`, 'An assertion is invalid.']
       }
       if (typeof assertion.expected === 'string' && assertion.expected.length > limits.maxTextChars) {

@@ -51,7 +51,10 @@ execution order; no global random or wall clock value is used for selection.
 
 Assertions are `exact`, `contains`, `excludes` (all case-sensitive literal
 string comparisons), or `manual` (always unknown until a separate human
-review). Non-manual expected strings must be nonempty. The default mock
+review). Prompts and non-manual expected strings must contain a visible
+character after whitespace, controls and default-ignorable characters are
+removed; otherwise the evidence is incomplete. This does not alter the
+literal comparison of valid strings. The default mock
 adapter consumes ordered local attempts in each case. An attempt has either
 `response` text or an `error` marker, and may have `costMicros`, a declared
 nonnegative integer in micro-units. This is an input estimate, never a bill
