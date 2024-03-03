@@ -234,6 +234,9 @@ function evaluateCore(dataset, { adapter, limits, checkDeadline }) {
       add('attempt-limit-exceeded', '/mock/attempts', `Attempt count exceeds ${limits.maxAttempts}.`)
       return { id, status: 'incomplete', attempts: attempts.length, retries: null, costMicros: null, checks: [] }
     }
+    if (caseFindings.length > 0) {
+      return { id, status: 'incomplete', attempts: attempts.length, retries: null, costMicros: null, checks: [] }
+    }
     if (attempts.some((attempt) => !validAttempt(attempt))) {
       add('adapter-invalid', '/mock/attempts', 'The local adapter supplied an invalid attempt.')
       return { id, status: 'incomplete', attempts: attempts.length, retries: null, costMicros: null, checks: [] }
@@ -287,14 +290,15 @@ function evaluateCore(dataset, { adapter, limits, checkDeadline }) {
     }
   })
   checkDeadline()
-  const retries = results.reduce((sum, item) => sum + item.retries, 0)
+  const retries = results.some((item) => item.retries === null)
+    ? null : results.reduce((sum, item) => sum + item.retries, 0)
   const missingCaseCost = results.some((item) => item.costMicros === null)
   let costMicros = missingCaseCost ? null : results.reduce((sum, item) => sum + item.costMicros, 0)
   if (costMicros !== null && !Number.isSafeInteger(costMicros)) {
     costMicros = null
     findings.push(finding('cost-unknown', '/policy/maxCostMicros', 'Aggregate declared cost exceeds safe integer precision, so the budget cannot be evaluated.'))
   }
-  if (retries > dataset.policy.maxRetries) {
+  if (retries !== null && retries > dataset.policy.maxRetries) {
     findings.push(finding('retry-budget-exceeded', '/policy/maxRetries', `Observed ${retries} retries, above the declared budget of ${dataset.policy.maxRetries}.`))
   }
   if (costMicros !== null && costMicros > dataset.policy.maxCostMicros) {

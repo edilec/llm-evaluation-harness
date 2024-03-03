@@ -38,6 +38,34 @@ test('a terminal error makes the case incomplete despite an earlier successful r
   assert.equal(report.cases[0].status, 'incomplete')
 })
 
+test('missing local adapter attempts leave case and aggregate cost and retries unknown', () => {
+  const input = oneCase()
+  input.cases.push({ ...structuredClone(input.cases[0]), id: 'B' })
+  const control = evaluateDataset(input, { now: () => 0 })
+  assert.equal(control.status, 'pass')
+  assert.equal(control.summary.costMicros, 4)
+  assert.equal(control.summary.retries, 0)
+
+  const report = evaluateDataset(input, {
+    now: () => 0,
+    adapter: ({ id }) => id === 'A' ? undefined : {
+      attempts: [{ error: 'local-retry', costMicros: 1 }, { response: 'ok', costMicros: 2 }],
+    },
+  })
+  assert.equal(report.status, 'incomplete')
+  assert.equal(exitCodeFor(report), 2)
+  assert.deepEqual(ids(report), ['response-missing'])
+  assert.equal(report.summary.checked, 2)
+  assert.equal(report.summary.retries, null)
+  assert.equal(report.summary.costMicros, null)
+  const missing = report.cases.find((item) => item.id === 'A')
+  const supplied = report.cases.find((item) => item.id === 'B')
+  assert.equal(missing.retries, null)
+  assert.equal(missing.costMicros, null)
+  assert.equal(supplied.retries, 1)
+  assert.equal(supplied.costMicros, 3)
+})
+
 test('a missing cost needed to evaluate the budget is visible and incomplete', () => {
   const input = oneCase()
   delete input.cases[0].mock.attempts[0].costMicros

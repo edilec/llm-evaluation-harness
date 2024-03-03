@@ -72,8 +72,9 @@ not accepted. The tool ships no provider/API adapter and cannot guarantee
 what a caller-supplied function does; only supply a pure local callback.
 
 The policy budgets are aggregate: `maxCostMicros` and `maxRetries` apply to
-the entire run. A known overrun fails; an unknown cost makes cost-budget
-evaluation incomplete. The per-case report includes attempts, retries,
+the entire run. A known overrun fails; missing adapter attempts leave both
+aggregate retries and cost unknown (null), not zero. The per-case report
+includes attempts, retries,
 declared cost or null, and assertion status. Evidence is only SHA-256 and
 UTF-16 length of expected and actual strings, never their raw contents.
 Those hashes can still reveal low-entropy strings by guessing; do not publish

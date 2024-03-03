@@ -34,6 +34,10 @@ test('CLI good case, failing local fixture and missing response have distinct ex
   assert.equal(missing.status, 2)
   assert.equal(JSON.parse(missing.stdout).status, 'incomplete')
   assert.deepEqual(JSON.parse(missing.stdout).findings.map((item) => item.ruleId), ['response-missing'])
+  assert.equal(JSON.parse(missing.stdout).summary.retries, null)
+  assert.equal(JSON.parse(missing.stdout).summary.costMicros, null)
+  assert.equal(JSON.parse(missing.stdout).cases[0].retries, null)
+  assert.equal(JSON.parse(missing.stdout).cases[0].costMicros, null)
 })
 
 test('CLI usage errors have empty stdout; named unreadable input has incomplete JSON', () => {
