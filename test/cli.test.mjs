@@ -62,3 +62,29 @@ test('malformed local response fixture is incomplete evidence, not a guessed moc
   assert.equal(result.status, 2)
   assert.deepEqual(JSON.parse(result.stdout).findings.map((item) => item.ruleId), ['input-invalid'])
 })
+
+test('duplicate JSON keys in dataset or response fixture cannot erase evidence', async (t) => {
+  const root = await mkdtemp(join(tmpdir(), 'llm-eval-duplicate-'))
+  t.after(() => rm(root, { recursive: true, force: true }))
+  const input = join(root, 'dataset.json')
+  const fixture = join(root, 'responses.json')
+  const good = JSON.stringify(dataset)
+  await writeFile(input, good)
+  assert.equal(run('--dataset', input, '--json').status, 0)
+  for (const ambiguous of [
+    good.replace('"maxCostMicros":5', '"maxCostMicros":null,"maxCostMicros":5'),
+    good.replace('"maxCostMicros":5', '"maxCostMicros":null,"maxCostMicr\\u006fs":5'),
+  ]) {
+    await writeFile(input, ambiguous)
+    const result = run('--dataset', input, '--json')
+    assert.equal(result.status, 2)
+    assert.deepEqual(JSON.parse(result.stdout).findings.map((item) => item.ruleId), ['input-invalid'])
+  }
+  await writeFile(input, good)
+  await writeFile(fixture, JSON.stringify({ schemaVersion: '1', responses: { first: { attempts: [{ response: 'yes', costMicros: 1 }] } } }))
+  assert.equal(run('--dataset', input, '--responses', fixture, '--json').status, 0)
+  await writeFile(fixture, '{"schemaVersion":"1","responses":{"first":{"attempts":[{"response":"wrong","response":"yes","costMicros":1}]}}}')
+  const result = run('--dataset', input, '--responses', fixture, '--json')
+  assert.equal(result.status, 2)
+  assert.deepEqual(JSON.parse(result.stdout).findings.map((item) => item.ruleId), ['input-invalid'])
+})

@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto'
 import { constants } from 'node:fs'
 import { open } from 'node:fs/promises'
+import { hasDuplicateObjectKeys } from './json.mjs'
 
 export const TOOL_ID = 'llm-evaluation-harness'
 export const SCHEMA_VERSION = '1'
@@ -347,7 +348,9 @@ async function readJson(path, limits, checkDeadline) {
     }
     if (used > limits.maxBytes) return { problem: ['byte-limit-exceeded', '', `Input exceeds ${limits.maxBytes} bytes.`] }
     try {
-      const data = JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(buffer.subarray(0, used)))
+      const text = new TextDecoder('utf-8', { fatal: true }).decode(buffer.subarray(0, used))
+      const data = JSON.parse(text)
+      if (hasDuplicateObjectKeys(text)) return { problem: ['input-invalid', '', 'Input has duplicate JSON keys.'] }
       checkDeadline()
       return { data }
     } catch (error) {

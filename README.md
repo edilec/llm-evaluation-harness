@@ -111,7 +111,9 @@ messages or evidence.
 
 The library `limits` object uses camelCase names and refuses unknown keys;
 each override is a positive safe integer within a finite hard cap. Every
-bound is silent at N and incomplete at N+1. The clock is injectable with
+bound is silent at N and incomplete at N+1. Duplicate JSON object keys in
+either named file, including escaped spellings of the same key, are incomplete
+evidence rather than last-value-wins input. The clock is injectable with
 `now` (default `Date.now`), and its value is never printed. Timeout checks
 are cooperative; one filesystem operation, JSON parse or supplied synchronous
 callback may overrun before the next check. Actual elapsed time can vary under
