@@ -43,7 +43,7 @@ function parse(argv) {
     const flag = argv[index]
     if (flag === '--json') { parsed.json = true; continue }
     if (flag !== '--dataset' && flag !== '--responses' && !Object.hasOwn(LIMIT_FLAGS, flag)) {
-      throw new ConfigError(`Unknown option "${flag}"`)
+      throw new ConfigError('Unknown option')
     }
     const raw = argv[++index]
     if (raw === undefined || raw.length === 0 || raw.startsWith('--')) throw new ConfigError(`${flag} requires a value`)

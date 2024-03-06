@@ -55,6 +55,19 @@ test('CLI usage errors have empty stdout; named unreadable input has incomplete 
   assert.equal(JSON.parse(missing.stdout).status, 'incomplete')
 })
 
+test('unknown option diagnostics do not echo bidi controls from the option', () => {
+  const ordinary = run('--dataset', 'unused', '--wrong')
+  assert.equal(ordinary.status, 2)
+  assert.equal(ordinary.stdout, '')
+  assert.match(ordinary.stderr, /Unknown option/)
+  const hostile = run('--dataset', 'unused', '--wrong\u202evisible')
+  assert.equal(hostile.status, 2)
+  assert.equal(hostile.stdout, '')
+  assert.match(hostile.stderr, /Unknown option/)
+  assert.ok(!hostile.stderr.includes('\u202e'))
+  assert.ok(!hostile.stderr.includes('--wrong'))
+})
+
 test('malformed local response fixture is incomplete evidence, not a guessed mock pass', async (t) => {
   const root = await mkdtemp(join(tmpdir(), 'llm-eval-fixture-'))
   t.after(() => rm(root, { recursive: true, force: true }))
