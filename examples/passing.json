@@ -1,0 +1,13 @@
+{
+  "schemaVersion": "1",
+  "seed": 7,
+  "policy": { "maxCostMicros": 10, "maxRetries": 1 },
+  "cases": [
+    {
+      "id": "sample-pass",
+      "prompt": "Return the word green",
+      "assertions": [{ "kind": "exact", "expected": "green" }],
+      "mock": { "attempts": [{ "response": "green", "costMicros": 2 }] }
+    }
+  ]
+}
